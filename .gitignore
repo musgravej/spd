@@ -1,3 +1,5 @@
 autoit/
 usb_20250112
-
+*.xlsx
+*.db
+venv/
