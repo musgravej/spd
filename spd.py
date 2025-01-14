@@ -4,14 +4,21 @@ import os
 import pathlib
 import openpyxl
 import sqlite3
+import string
 import sys
 import datetime
 from openpyxl.worksheet.worksheet import Worksheet
 
 
+def dict_factory(cursor, row):
+    fields = [column[0] for column in cursor.description]
+    return {key: value for key, value in zip(fields, row)}
+
+
 def new_file_search() -> list[str]:
     return [
-        _ for _ in os.listdir(pathlib.Path(__file__).parent.resolve())
+        _
+        for _ in os.listdir(pathlib.Path(__file__).parent.resolve())
         if _.endswith("xlsx") and "SPD" not in _ and "~" not in _
     ]
 
@@ -49,6 +56,7 @@ def file_etl(file_path: str, table_path: str):
     con = sqlite3.connect(table_path)
     cursor = con.cursor()
     header = calculate_header_row(sheet)
+
     cursor.execute("delete from bill;")
     con.commit()
     cursor.execute("VACUUM;")
@@ -65,8 +73,48 @@ def file_etl(file_path: str, table_path: str):
     con.close()
 
 
+def write_ws_row(worksheet: Worksheet, row: dict):
+    for _cell, _value in row.items():
+        worksheet[_cell] = _value
+
+
+def create_header_row() -> dict:
+    _row = {}
+    headers = ["Date", "Name", "Type", "Atnumber", "Description", "OutCourtHours", "InCourtHours", "ParalegalHours"]
+
+    for col, val in zip(string.ascii_uppercase, headers):
+        _row[f"{col}1"] = val
+    return _row
+
+
+def create_report_row(cursor_row: dict, row_number: int) -> dict:
+    _row = {
+        f"A{row_number}": cursor_row["logDate"],
+        f"B{row_number}": "Julia A Ofenbakh",
+        f"C{row_number}": "AT",
+        f"D{row_number}": "AT3019050",
+        f"E{row_number}": f"{cursor_row['description1']} | {cursor_row['description2']}",
+        f"F{row_number}": cursor_row["hours"] if "COURT" not in cursor_row["description1"].upper() else "",
+        f"G{row_number}": cursor_row["hours"] if "COURT" in cursor_row["description1"].upper() else "",
+    }
+    return _row
+
+
 def write_report(file_path: str, table_path: str):
-    pass
+    con = sqlite3.connect(table_path)
+    con.row_factory = dict_factory
+    cursor = con.cursor()
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    header = create_header_row()
+    write_ws_row(ws, header)
+    cursor.execute("SELECT * FROM [bill] ORDER BY logDate;")
+    for _idx, _row in enumerate(cursor.fetchall(), 2):
+        write_ws_row(ws, create_report_row(_row, _idx))
+
+    wb.save("foo.xlsx")  # TODO: create save file name
+    con.close()
 
 
 def file_move_to_archive(file_path: str):
@@ -99,7 +147,7 @@ def process_all_files(processing_files: list[str]):
 
     for _file in processing_files:
         file_etl(_file, sqlite_table)
-        # write_report(file_path, table_path)
+        write_report(_file, sqlite_table)
         # file_move_to_archive(file_path)
 
     # delete sqlite table
@@ -126,7 +174,6 @@ def main():
         time.sleep(3)
         sys.exit()
     process_all_files(process_files)
-    pass
 
 
 if __name__ == "__main__":
