@@ -5,18 +5,40 @@ import pathlib
 import openpyxl
 import sqlite3
 import sys
+import datetime
+from openpyxl.worksheet.worksheet import Worksheet
 
 
 def new_file_search() -> list[str]:
-    return [_ for _ in os.listdir(pathlib.Path(__file__).parent.resolve()) if _.endswith("xlsx")]
+    return [
+        _ for _ in os.listdir(pathlib.Path(__file__).parent.resolve())
+        if _.endswith("xlsx") and "SPD" not in _ and "~" not in _
+    ]
 
 
 def is_processing_row(row: tuple) -> bool:
-    if all(_ is None for _ in row):
+    if row[0] is None:
         return False
-    if row[0] is not None and re.search(r"\d{2}/\d{2}/\d{2}", row[0]):
-        return True
-    return False
+    if not re.search(r"\d{2}/\d{2}/\d{2}$", str.strip(row[0])):
+        return False
+    return True
+
+
+def calculate_header_row(sheet: Worksheet) -> dict:
+    header = {}
+    for _row in sheet.iter_rows(values_only=True):
+        if _row[0] == "Date":
+            return dict(
+                filter(lambda x: x[1] is not None and x[0] is not None, dict(zip(_row, range(len(_row)))).items())
+            )
+    return header
+
+
+def build_data_row(row: tuple, source: str, header: dict) -> dict:
+    _row = {name: str.strip(row[idx]) for name, idx in header.items()}
+    _row["Date"] = datetime.datetime.strptime(_row["Date"], "%m/%d/%y").date().__str__()
+    _row["Source"] = source
+    return _row
 
 
 def file_etl(file_path: str, table_path: str):
@@ -24,11 +46,23 @@ def file_etl(file_path: str, table_path: str):
     wb = openpyxl.load_workbook(file_path)
     sheet = wb.active
 
-    for _row in filter(lambda x: is_processing_row(x), sheet.iter_rows(values_only=True)):
-        #  sql = "INSERT INTO [bill] ([logDate], [description1], [description2], [hours]) " & _
-        # 'values ("' & $reformatDate & '", "' & $activity & '", "' & $description & '", "' & $labor & '");'
-        pass
-    pass
+    con = sqlite3.connect(table_path)
+    cursor = con.cursor()
+    header = calculate_header_row(sheet)
+    cursor.execute("delete from bill;")
+    con.commit()
+    cursor.execute("VACUUM;")
+    con.commit()
+
+    sql = (
+        "INSERT INTO [bill] ([logDate], [description1], [description2], [hours], [source]) "
+        "values (:Date, :Activity, :Description, :Labor, :Source);"
+    )
+    values = filter(lambda x: is_processing_row(x), sheet.iter_rows(values_only=True))
+    values = (build_data_row(_value, file_path, header) for _value in values)
+    cursor.executemany(sql, values)
+    con.commit()
+    con.close()
 
 
 def write_report(file_path: str, table_path: str):
@@ -49,6 +83,7 @@ def create_sqlite_db(table_path: str):
         "[description1] TEXT, "
         "[description2] TEXT, "
         "[hours] decimal, "
+        "[source] TEXT, "
         "[id] integer "
         "PRIMARY KEY AUTOINCREMENT);"
     )
