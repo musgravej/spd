@@ -1,12 +1,14 @@
-import re
-import time
+import datetime
 import os
 import pathlib
-import openpyxl
+import re
+import shutil
 import sqlite3
 import string
 import sys
-import datetime
+import time
+
+import openpyxl
 from openpyxl.worksheet.worksheet import Worksheet
 
 
@@ -100,6 +102,12 @@ def create_report_row(cursor_row: dict, row_number: int) -> dict:
     return _row
 
 
+def create_save_file_path(file_path: str) -> str:
+    file_parts = pathlib.Path(file_path)
+    complete_file = os.path.join(os.path.curdir, f"{file_parts.stem}_SPD{file_parts.suffix}")
+    return complete_file
+
+
 def write_report(file_path: str, table_path: str):
     con = sqlite3.connect(table_path)
     con.row_factory = dict_factory
@@ -110,16 +118,28 @@ def write_report(file_path: str, table_path: str):
     header = create_header_row()
     write_ws_row(ws, header)
     cursor.execute("SELECT * FROM [bill] ORDER BY logDate;")
+
+    cursor.execute(
+        "SELECT STRFTIME('%m/%d/%Y', logDate) AS logDate "
+        ", description1 , description2 , hours , id FROM bill;"
+    )
     for _idx, _row in enumerate(cursor.fetchall(), 2):
         write_ws_row(ws, create_report_row(_row, _idx))
 
-    wb.save("foo.xlsx")  # TODO: create save file name
+    save_path = create_save_file_path(file_path)
+    if os.path.exists(save_path):
+        os.remove(save_path)
+
+    wb.save(save_path)
     con.close()
 
 
 def file_move_to_archive(file_path: str):
     print(f"Moving {file_path} to completed directory")
-    pass
+    complete_path = os.path.join(os.curdir, "Complete")
+    if not os.path.exists(complete_path):
+        os.makedirs(complete_path)
+    shutil.move(file_path, os.path.join(complete_path, file_path))
 
 
 def create_sqlite_db(table_path: str):
@@ -148,26 +168,12 @@ def process_all_files(processing_files: list[str]):
     for _file in processing_files:
         file_etl(_file, sqlite_table)
         write_report(_file, sqlite_table)
-        # file_move_to_archive(file_path)
+        file_move_to_archive(_file)
 
-    # delete sqlite table
-    # os.remove(sqlite_table)
-    pass
+    # os.remove(os.path.join(os.curdir, sqlite_table))
 
 
 def main():
-    # search for files in import path ending in .xlxs
-    # if not search, disply no report files message
-    # if search, run processing
-    # for each file:
-    # create sqlite table, if not exists
-    # clear all rows for sqlite table, and vaccuum
-    # import file to sqlite table
-    # run ETL?
-    # export new file
-    # move original file to comppleted directory
-    # when all files done, delete sqlite table, if still exits
-    # show processing complete message
     process_files = new_file_search()
     if not process_files:
         print("No files to process, exit")
@@ -177,4 +183,5 @@ def main():
 
 
 if __name__ == "__main__":
+    # rm *_SPD.xlsx && mv ./Compete/*.xlsx . main()
     main()
