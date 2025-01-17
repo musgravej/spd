@@ -33,17 +33,22 @@ def is_processing_row(row: tuple) -> bool:
     return True
 
 
-def calculate_header_row(sheet: Worksheet) -> dict:
+def get_worksheet_header_row(sheet: Worksheet) -> dict:
     header = {}
     for _row in sheet.iter_rows(values_only=True):
         if _row[0] == "Date":
             return dict(
-                filter(lambda x: x[1] is not None and x[0] is not None, dict(zip(_row, range(len(_row)))).items())
+                filter(
+                    lambda column: column[1] is not None and column[0] is not None,
+                    dict(
+                        zip(_row, range(len(_row))),
+                    ).items(),
+                ),
             )
     return header
 
 
-def build_data_row(row: tuple, source: str, header: dict) -> dict:
+def build_report_row(row: tuple, source: str, header: dict) -> dict:
     _row = {name: str.strip(row[idx]) for name, idx in header.items()}
     _row["Date"] = datetime.datetime.strptime(_row["Date"], "%m/%d/%y").date().__str__()
     _row["Source"] = source
@@ -57,7 +62,7 @@ def file_etl(file_path: str, table_path: str):
 
     con = sqlite3.connect(table_path)
     cursor = con.cursor()
-    header = calculate_header_row(sheet)
+    header = get_worksheet_header_row(sheet)
 
     cursor.execute("delete from bill;")
     con.commit()
@@ -69,7 +74,7 @@ def file_etl(file_path: str, table_path: str):
         "values (:Date, :Activity, :Description, :Labor, :Source);"
     )
     values = filter(lambda x: is_processing_row(x), sheet.iter_rows(values_only=True))
-    values = (build_data_row(_value, file_path, header) for _value in values)
+    values = (build_report_row(_value, file_path, header) for _value in values)
     cursor.executemany(sql, values)
     con.commit()
     con.close()
@@ -117,11 +122,11 @@ def write_report(file_path: str, table_path: str):
     ws = wb.active
     header = create_header_row()
     write_ws_row(ws, header)
-    cursor.execute("SELECT * FROM [bill] ORDER BY logDate;")
 
     cursor.execute(
-        "SELECT STRFTIME('%m/%d/%Y', logDate) AS logDate "
-        ", description1 , description2 , hours , id FROM bill;"
+        """SELECT STRFTIME('%m/%d/%Y', `logDate`) AS 'logDate',
+        `description1`, `description2`, `hours` FROM [bill] ORDER BY `logDate`;
+        """
     )
     for _idx, _row in enumerate(cursor.fetchall(), 2):
         write_ws_row(ws, create_report_row(_row, _idx))
@@ -170,7 +175,9 @@ def process_all_files(processing_files: list[str]):
         write_report(_file, sqlite_table)
         file_move_to_archive(_file)
 
-    # os.remove(os.path.join(os.curdir, sqlite_table))
+    print("Process complete, cleaning up")
+    time.sleep(3)
+    os.remove(os.path.join(os.curdir, sqlite_table))
 
 
 def main():
