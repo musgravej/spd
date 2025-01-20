@@ -3,3 +3,7 @@ usb_20250112
 *.xlsx
 *.db
 venv/
+build/
+dist/
+*.spec
+Complete/
