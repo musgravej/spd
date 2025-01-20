@@ -12,6 +12,21 @@ import openpyxl
 from openpyxl.worksheet.worksheet import Worksheet
 
 
+"""
+Delete compiled files:
+rm -rf build
+rm -rf dist
+rm spd.spec
+
+Compile job with pyinstaller:
+pyinstaller spd.py --onefile
+use file from ./dist folder
+
+Reset directories after complete files:
+rm *_SPD.xlsx && mv ./Compete/*.xlsx .
+"""
+
+
 def dict_factory(cursor, row):
     fields = [column[0] for column in cursor.description]
     return {key: value for key, value in zip(fields, row)}
@@ -20,7 +35,7 @@ def dict_factory(cursor, row):
 def new_file_search() -> list[str]:
     return [
         _
-        for _ in os.listdir(pathlib.Path(__file__).parent.resolve())
+        for _ in os.listdir(os.curdir)
         if _.endswith("xlsx") and "SPD" not in _ and "~" not in _
     ]
 
@@ -190,5 +205,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # rm *_SPD.xlsx && mv ./Compete/*.xlsx . main()
     main()
