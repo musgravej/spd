@@ -26,6 +26,9 @@ Reset directories after complete files:
 rm *_SPD.xlsx && mv ./Compete/*.xlsx .
 """
 
+CURRENT_PATH = os.path.dirname(__file__)
+SQL_PATH = os.path.join(CURRENT_PATH, "report.db")
+
 
 def dict_factory(cursor, row):
     fields = [column[0] for column in cursor.description]
@@ -33,11 +36,9 @@ def dict_factory(cursor, row):
 
 
 def new_file_search() -> list[str]:
-    return [
-        _
-        for _ in os.listdir(os.curdir)
-        if _.endswith("xlsx") and "SPD" not in _ and "~" not in _
-    ]
+    print(f"Searching path: {CURRENT_PATH}")
+    print(f"Current directory files: {os.listdir(CURRENT_PATH)}")
+    return [_ for _ in os.listdir(CURRENT_PATH) if _.endswith("xlsx") and "SPD" not in _ and "~" not in _]
 
 
 def is_processing_row(row: tuple) -> bool:
@@ -102,7 +103,16 @@ def write_ws_row(worksheet: Worksheet, row: dict):
 
 def create_header_row() -> dict:
     _row = {}
-    headers = ["Date", "Name", "Type", "Atnumber", "Description", "OutCourtHours", "InCourtHours", "ParalegalHours"]
+    headers = [
+        "Date",
+        "Name",
+        "Type",
+        "Atnumber",
+        "Description",
+        "OutCourtHours",
+        "InCourtHours",
+        "ParalegalHours",
+    ]
 
     for col, val in zip(string.ascii_uppercase, headers):
         _row[f"{col}1"] = val
@@ -124,7 +134,7 @@ def create_report_row(cursor_row: dict, row_number: int) -> dict:
 
 def create_save_file_path(file_path: str) -> str:
     file_parts = pathlib.Path(file_path)
-    complete_file = os.path.join(os.path.curdir, f"{file_parts.stem}_SPD{file_parts.suffix}")
+    complete_file = os.path.join(CURRENT_PATH, f"{file_parts.stem}_SPD{file_parts.suffix}")
     return complete_file
 
 
@@ -155,16 +165,17 @@ def write_report(file_path: str, table_path: str):
 
 
 def file_move_to_archive(file_path: str):
-    print(f"Moving {file_path} to completed directory")
-    complete_path = os.path.join(os.curdir, "Complete")
-    if not os.path.exists(complete_path):
-        os.makedirs(complete_path)
-    shutil.move(file_path, os.path.join(complete_path, file_path))
+    completed_files_dir = os.path.join(CURRENT_PATH, "Complete")
+    print(f"Moving {file_path} to {completed_files_dir}")
+    if not os.path.exists(completed_files_dir):
+        os.makedirs(completed_files_dir)
+    file_name = os.path.basename(file_path)
+    shutil.move(file_path, os.path.join(completed_files_dir, file_name))
 
 
-def create_sqlite_db(table_path: str):
+def create_sqlite_db():
     print("Initializing database")
-    con = sqlite3.connect(table_path)
+    con = sqlite3.connect(SQL_PATH)
     _sql = (
         "CREATE TABLE [bill] ("
         "[logDate] DATE, "
@@ -180,28 +191,34 @@ def create_sqlite_db(table_path: str):
 
 
 def process_all_files(processing_files: list[str]):
-    sqlite_table = "report.db"
-    if os.path.exists(sqlite_table):
-        os.remove(sqlite_table)
-    create_sqlite_db(sqlite_table)
+    if os.path.exists(SQL_PATH):
+        os.remove(SQL_PATH)
+    create_sqlite_db()
 
     for _file in processing_files:
-        file_etl(_file, sqlite_table)
-        write_report(_file, sqlite_table)
-        file_move_to_archive(_file)
+        _file_path = os.path.join(CURRENT_PATH, _file)
+        file_etl(_file_path, SQL_PATH)
+        write_report(_file_path, SQL_PATH)
+        file_move_to_archive(_file_path)
 
     print("Process complete, cleaning up")
     time.sleep(3)
-    os.remove(os.path.join(os.curdir, sqlite_table))
+    os.remove(SQL_PATH)
 
 
 def main():
-    process_files = new_file_search()
-    if not process_files:
-        print("No files to process, exit")
-        time.sleep(3)
-        sys.exit()
-    process_all_files(process_files)
+    try:
+        process_files = new_file_search()
+        time.sleep(2)
+        if not process_files:
+            print("No files to process, exit")
+            time.sleep(3)
+            sys.exit()
+        print("Process files:", process_files)
+        process_all_files(process_files)
+    except Exception as e:
+        print(e)
+        time.sleep(5)
 
 
 if __name__ == "__main__":
